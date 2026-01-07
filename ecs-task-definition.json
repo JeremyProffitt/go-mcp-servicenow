@@ -1,0 +1,73 @@
+{
+  "family": "go-mcp-servicenow",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "go-mcp-servicenow",
+      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/go-mcp-servicenow:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 3000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "MCP_LOG_LEVEL",
+          "value": "info"
+        },
+        {
+          "name": "READ_ONLY_MODE",
+          "value": "false"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "SERVICENOW_INSTANCE_URL",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:go-mcp-servicenow/SERVICENOW_INSTANCE_URL"
+        },
+        {
+          "name": "SERVICENOW_AUTH_TYPE",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:go-mcp-servicenow/SERVICENOW_AUTH_TYPE"
+        },
+        {
+          "name": "SERVICENOW_USERNAME",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:go-mcp-servicenow/SERVICENOW_USERNAME"
+        },
+        {
+          "name": "SERVICENOW_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:go-mcp-servicenow/SERVICENOW_PASSWORD"
+        },
+        {
+          "name": "MCP_AUTH_TOKEN",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:go-mcp-servicenow/MCP_AUTH_TOKEN"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/go-mcp-servicenow",
+          "awslogs-region": "REGION",
+          "awslogs-stream-prefix": "ecs",
+          "awslogs-create-group": "true"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 10,
+        "retries": 3,
+        "startPeriod": 5
+      }
+    }
+  ]
+}
