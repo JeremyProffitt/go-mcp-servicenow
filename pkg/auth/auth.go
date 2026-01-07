@@ -9,10 +9,7 @@ const AuthHeaderName = "X-MCP-Auth-Token"
 
 // ValidateToken validates the provided authentication token.
 func ValidateToken(token string) bool {
-	if token == "" {
-		return false
-	}
-	return true
+	return token != ""
 }
 
 // GetExpectedToken returns the expected token from environment variable.

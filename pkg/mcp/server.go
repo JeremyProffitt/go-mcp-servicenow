@@ -187,7 +187,7 @@ func (s *Server) RunHTTP(addr string) error {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"status": "healthy",
 			"server": s.name,
 		})
@@ -206,7 +206,7 @@ func (s *Server) RunHTTP(addr string) error {
 			if !auth.ValidateAgainstExpected(token) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
 					"jsonrpc": "2.0",
 					"id":      nil,
 					"error":   map[string]interface{}{"code": -32001, "message": "Unauthorized: invalid or missing authentication token"},
@@ -219,7 +219,7 @@ func (s *Server) RunHTTP(addr string) error {
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"jsonrpc": "2.0",
 				"id":      nil,
 				"error":   map[string]interface{}{"code": -32700, "message": "Parse error"},
@@ -230,7 +230,7 @@ func (s *Server) RunHTTP(addr string) error {
 		response := s.handleMessage(body)
 		if response != nil {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(response)
+			_ = json.NewEncoder(w).Encode(response)
 		}
 	})
 
