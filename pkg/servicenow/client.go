@@ -2,6 +2,7 @@ package servicenow
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -59,11 +60,39 @@ func NewClient(config *Config, opts ...ClientOption) (*Client, error) {
 
 // GetHeaders returns the authentication headers for API requests
 func (c *Client) GetHeaders() (map[string]string, error) {
+	return c.GetHeadersWithContext(context.Background())
+}
+
+// GetHeadersWithContext returns the authentication headers for API requests,
+// checking for credentials in the context first (from HTTP request headers)
+func (c *Client) GetHeadersWithContext(ctx context.Context) (map[string]string, error) {
 	headers := map[string]string{
 		"Accept":       "application/json",
 		"Content-Type": "application/json",
 	}
 
+	// Check for credentials in context (from HTTP request headers)
+	ctxCreds := CredentialsFromContext(ctx)
+
+	// If context has API key, use it
+	if ctxCreds != nil && ctxCreds.APIKey != "" {
+		headerName := "X-ServiceNow-API-Key"
+		if c.config.Auth.APIKey != nil && c.config.Auth.APIKey.HeaderName != "" {
+			headerName = c.config.Auth.APIKey.HeaderName
+		}
+		headers[headerName] = ctxCreds.APIKey
+		return headers, nil
+	}
+
+	// If context has username/password, use basic auth with those
+	if ctxCreds != nil && ctxCreds.Username != "" && ctxCreds.Password != "" {
+		authStr := fmt.Sprintf("%s:%s", ctxCreds.Username, ctxCreds.Password)
+		encoded := base64.StdEncoding.EncodeToString([]byte(authStr))
+		headers["Authorization"] = fmt.Sprintf("Basic %s", encoded)
+		return headers, nil
+	}
+
+	// Fall back to configured auth
 	switch c.config.Auth.Type {
 	case AuthTypeBasic:
 		if c.config.Auth.Basic == nil {
@@ -222,6 +251,11 @@ func (c *Client) RefreshToken() error {
 
 // Request makes an HTTP request to the ServiceNow API
 func (c *Client) Request(method, endpoint string, body interface{}) (map[string]interface{}, error) {
+	return c.RequestWithContext(context.Background(), method, endpoint, body)
+}
+
+// RequestWithContext makes an HTTP request to the ServiceNow API with context support
+func (c *Client) RequestWithContext(ctx context.Context, method, endpoint string, body interface{}) (map[string]interface{}, error) {
 	apiURL := fmt.Sprintf("%s%s", c.config.APIURL(), endpoint)
 
 	var bodyReader io.Reader
@@ -233,12 +267,12 @@ func (c *Client) Request(method, endpoint string, body interface{}) (map[string]
 		bodyReader = bytes.NewReader(bodyBytes)
 	}
 
-	req, err := http.NewRequest(method, apiURL, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, apiURL, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	headers, err := c.GetHeaders()
+	headers, err := c.GetHeadersWithContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get headers: %w", err)
 	}
@@ -274,6 +308,11 @@ func (c *Client) Request(method, endpoint string, body interface{}) (map[string]
 
 // Get makes a GET request to the ServiceNow API
 func (c *Client) Get(endpoint string, params map[string]string) (map[string]interface{}, error) {
+	return c.GetWithContext(context.Background(), endpoint, params)
+}
+
+// GetWithContext makes a GET request to the ServiceNow API with context support
+func (c *Client) GetWithContext(ctx context.Context, endpoint string, params map[string]string) (map[string]interface{}, error) {
 	apiURL := fmt.Sprintf("%s%s", c.config.APIURL(), endpoint)
 
 	if len(params) > 0 {
@@ -284,12 +323,12 @@ func (c *Client) Get(endpoint string, params map[string]string) (map[string]inte
 		apiURL = fmt.Sprintf("%s?%s", apiURL, values.Encode())
 	}
 
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	headers, err := c.GetHeaders()
+	headers, err := c.GetHeadersWithContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get headers: %w", err)
 	}
@@ -328,9 +367,19 @@ func (c *Client) Post(endpoint string, body interface{}) (map[string]interface{}
 	return c.Request("POST", endpoint, body)
 }
 
+// PostWithContext makes a POST request to the ServiceNow API with context support
+func (c *Client) PostWithContext(ctx context.Context, endpoint string, body interface{}) (map[string]interface{}, error) {
+	return c.RequestWithContext(ctx, "POST", endpoint, body)
+}
+
 // Put makes a PUT request to the ServiceNow API
 func (c *Client) Put(endpoint string, body interface{}) (map[string]interface{}, error) {
 	return c.Request("PUT", endpoint, body)
+}
+
+// PutWithContext makes a PUT request to the ServiceNow API with context support
+func (c *Client) PutWithContext(ctx context.Context, endpoint string, body interface{}) (map[string]interface{}, error) {
+	return c.RequestWithContext(ctx, "PUT", endpoint, body)
 }
 
 // Patch makes a PATCH request to the ServiceNow API
@@ -338,9 +387,19 @@ func (c *Client) Patch(endpoint string, body interface{}) (map[string]interface{
 	return c.Request("PATCH", endpoint, body)
 }
 
+// PatchWithContext makes a PATCH request to the ServiceNow API with context support
+func (c *Client) PatchWithContext(ctx context.Context, endpoint string, body interface{}) (map[string]interface{}, error) {
+	return c.RequestWithContext(ctx, "PATCH", endpoint, body)
+}
+
 // Delete makes a DELETE request to the ServiceNow API
 func (c *Client) Delete(endpoint string) (map[string]interface{}, error) {
 	return c.Request("DELETE", endpoint, nil)
+}
+
+// DeleteWithContext makes a DELETE request to the ServiceNow API with context support
+func (c *Client) DeleteWithContext(ctx context.Context, endpoint string) (map[string]interface{}, error) {
+	return c.RequestWithContext(ctx, "DELETE", endpoint, nil)
 }
 
 // Config returns the client configuration

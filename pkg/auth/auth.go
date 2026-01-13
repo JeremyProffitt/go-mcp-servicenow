@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"context"
 	"os"
+	"strings"
 )
 
 // AuthHeaderName is the HTTP header used for MCP authentication
@@ -29,4 +31,21 @@ func ValidateAgainstExpected(providedToken string) bool {
 		return true
 	}
 	return providedToken == expectedToken
+}
+
+// TokenAuthorizer implements Authorizer using the MCP_AUTH_TOKEN environment variable
+type TokenAuthorizer struct{}
+
+// Authorize validates the token against the expected MCP_AUTH_TOKEN
+func (t *TokenAuthorizer) Authorize(ctx context.Context, token string) (bool, error) {
+	// Extract token from "Bearer <token>" format if present
+	if strings.HasPrefix(token, "Bearer ") {
+		token = strings.TrimPrefix(token, "Bearer ")
+	}
+	return ValidateAgainstExpected(token), nil
+}
+
+// NewTokenAuthorizer creates a new TokenAuthorizer
+func NewTokenAuthorizer() *TokenAuthorizer {
+	return &TokenAuthorizer{}
 }

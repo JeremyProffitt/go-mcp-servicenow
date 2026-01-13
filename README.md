@@ -342,6 +342,24 @@ export SERVICENOW_API_KEY="your_api_key"
 | `--log-level` | Log level | info |
 | `--version` | Show version | - |
 
+### HTTP Mode Details
+
+When running in HTTP mode, the server exposes:
+- `POST /` - MCP JSON-RPC endpoint
+- `GET /health` - Health check endpoint (returns `{"status":"ok","version":"X.X.X"}`)
+
+**Authentication**: HTTP mode requires an `Authorization` header on all requests (except `/health`). The authorization layer is pluggable; by default it accepts any token.
+
+**Per-Request Credentials**: In HTTP mode, ServiceNow credentials can be passed via headers instead of environment variables, enabling multi-user scenarios:
+
+| Header | Description |
+|--------|-------------|
+| `X-ServiceNow-Username` | ServiceNow username (overrides `SERVICENOW_USERNAME`) |
+| `X-ServiceNow-Password` | ServiceNow password (overrides `SERVICENOW_PASSWORD`) |
+| `X-ServiceNow-API-Key` | ServiceNow API key (overrides `SERVICENOW_API_KEY`) |
+
+These headers override the corresponding environment variables when present.
+
 ### Docker
 
 ```bash

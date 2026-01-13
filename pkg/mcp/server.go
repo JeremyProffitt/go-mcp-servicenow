@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,10 +12,14 @@ import (
 	"time"
 
 	"github.com/elastiflow/go-mcp-servicenow/pkg/auth"
+	"github.com/elastiflow/go-mcp-servicenow/pkg/servicenow"
 )
 
 // ToolHandler is a function that handles a tool call
 type ToolHandler func(arguments map[string]interface{}) (*CallToolResult, error)
+
+// ToolHandlerWithContext is a function that handles a tool call with context support
+type ToolHandlerWithContext func(ctx context.Context, arguments map[string]interface{}) (*CallToolResult, error)
 
 // ResourceProvider provides resources for the MCP server
 type ResourceProvider interface {
@@ -34,6 +39,7 @@ type Server struct {
 	version  string
 	tools    []Tool
 	handlers map[string]ToolHandler
+	ctxHandlers map[string]ToolHandlerWithContext
 	mu       sync.RWMutex
 	stdin    io.Reader
 	stdout   io.Writer
@@ -59,6 +65,7 @@ func NewServer(name, version string) *Server {
 		version:            version,
 		tools:              make([]Tool, 0),
 		handlers:           make(map[string]ToolHandler),
+		ctxHandlers:        make(map[string]ToolHandlerWithContext),
 		stdin:              os.Stdin,
 		stdout:             os.Stdout,
 		stderr:             os.Stderr,
@@ -92,6 +99,14 @@ func (s *Server) RegisterTool(tool Tool, handler ToolHandler) {
 	defer s.mu.Unlock()
 	s.tools = append(s.tools, tool)
 	s.handlers[tool.Name] = handler
+}
+
+// RegisterToolWithContext registers a tool with a context-aware handler
+func (s *Server) RegisterToolWithContext(tool Tool, handler ToolHandlerWithContext) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tools = append(s.tools, tool)
+	s.ctxHandlers[tool.Name] = handler
 }
 
 // checkRateLimit returns true if the request should be rate limited
@@ -181,6 +196,11 @@ func (s *Server) Run() error {
 
 // RunHTTP starts the server in HTTP mode with optional authentication
 func (s *Server) RunHTTP(addr string) error {
+	return s.RunHTTPWithAuthorizer(addr, nil)
+}
+
+// RunHTTPWithAuthorizer starts the server in HTTP mode with a custom authorizer
+func (s *Server) RunHTTPWithAuthorizer(addr string, authorizer auth.Authorizer) error {
 	mux := http.NewServeMux()
 
 	// Health check endpoint (no auth required)
@@ -188,8 +208,8 @@ func (s *Server) RunHTTP(addr string) error {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"status": "healthy",
-			"server": s.name,
+			"status":  "ok",
+			"version": s.version,
 		})
 	})
 
@@ -202,14 +222,41 @@ func (s *Server) RunHTTP(addr string) error {
 
 		// Check authentication if enabled
 		if auth.IsAuthEnabled() {
-			token := r.Header.Get(auth.AuthHeaderName)
-			if !auth.ValidateAgainstExpected(token) {
+			// Check Authorization header first, then fall back to X-MCP-Auth-Token
+			token := r.Header.Get("Authorization")
+			if token == "" {
+				token = r.Header.Get(auth.AuthHeaderName)
+			}
+
+			if token == "" {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
 				_ = json.NewEncoder(w).Encode(map[string]interface{}{
 					"jsonrpc": "2.0",
 					"id":      nil,
-					"error":   map[string]interface{}{"code": -32001, "message": "Unauthorized: invalid or missing authentication token"},
+					"error":   map[string]interface{}{"code": -32001, "message": "Unauthorized: missing Authorization header"},
+				})
+				return
+			}
+
+			// Use custom authorizer if provided, otherwise use default token validation
+			var authorized bool
+			var authErr error
+			if authorizer != nil {
+				authorized, authErr = authorizer.Authorize(r.Context(), token)
+			} else {
+				// Default: use TokenAuthorizer for backward compatibility
+				defaultAuth := auth.NewTokenAuthorizer()
+				authorized, authErr = defaultAuth.Authorize(r.Context(), token)
+			}
+
+			if authErr != nil || !authorized {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"jsonrpc": "2.0",
+					"id":      nil,
+					"error":   map[string]interface{}{"code": -32001, "message": "Unauthorized: invalid authentication token"},
 				})
 				return
 			}
@@ -227,7 +274,21 @@ func (s *Server) RunHTTP(addr string) error {
 			return
 		}
 
-		response := s.handleMessage(body)
+		// Extract ServiceNow credentials from headers and add to context
+		ctx := r.Context()
+		snUsername := r.Header.Get(servicenow.HeaderUsername)
+		snPassword := r.Header.Get(servicenow.HeaderPassword)
+		snAPIKey := r.Header.Get(servicenow.HeaderAPIKey)
+		if snUsername != "" || snPassword != "" || snAPIKey != "" {
+			creds := &servicenow.ContextCredentials{
+				Username: snUsername,
+				Password: snPassword,
+				APIKey:   snAPIKey,
+			}
+			ctx = servicenow.ContextWithCredentials(ctx, creds)
+		}
+
+		response := s.handleMessageWithContext(ctx, body)
 		if response != nil {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(response)
@@ -255,6 +316,10 @@ func trimLine(s string) string {
 }
 
 func (s *Server) handleMessage(data []byte) *JSONRPCResponse {
+	return s.handleMessageWithContext(context.Background(), data)
+}
+
+func (s *Server) handleMessageWithContext(ctx context.Context, data []byte) *JSONRPCResponse {
 	var request JSONRPCRequest
 	if err := json.Unmarshal(data, &request); err != nil {
 		return &JSONRPCResponse{
@@ -273,7 +338,7 @@ func (s *Server) handleMessage(data []byte) *JSONRPCResponse {
 		return nil
 	}
 
-	return s.handleRequest(&request)
+	return s.handleRequestWithContext(ctx, &request)
 }
 
 func (s *Server) handleNotification(request *JSONRPCRequest) {
@@ -286,6 +351,10 @@ func (s *Server) handleNotification(request *JSONRPCRequest) {
 }
 
 func (s *Server) handleRequest(request *JSONRPCRequest) *JSONRPCResponse {
+	return s.handleRequestWithContext(context.Background(), request)
+}
+
+func (s *Server) handleRequestWithContext(ctx context.Context, request *JSONRPCRequest) *JSONRPCResponse {
 	response := &JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      request.ID,
@@ -297,7 +366,7 @@ func (s *Server) handleRequest(request *JSONRPCRequest) *JSONRPCResponse {
 	case "tools/list":
 		response.Result = s.handleListTools()
 	case "tools/call":
-		result, err := s.handleCallTool(request.Params)
+		result, err := s.handleCallToolWithContext(ctx, request.Params)
 		if err != nil {
 			response.Error = &JSONRPCError{
 				Code:    InternalError,
@@ -371,6 +440,10 @@ func (s *Server) handleListTools() *ListToolsResult {
 }
 
 func (s *Server) handleCallTool(params interface{}) (*CallToolResult, error) {
+	return s.handleCallToolWithContext(context.Background(), params)
+}
+
+func (s *Server) handleCallToolWithContext(ctx context.Context, params interface{}) (*CallToolResult, error) {
 	paramsMap, ok := params.(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("invalid params type")
@@ -392,10 +465,11 @@ func (s *Server) handleCallTool(params interface{}) (*CallToolResult, error) {
 	}
 
 	s.mu.RLock()
-	handler, exists := s.handlers[name]
+	handler, handlerExists := s.handlers[name]
+	ctxHandler, ctxHandlerExists := s.ctxHandlers[name]
 	s.mu.RUnlock()
 
-	if !exists {
+	if !handlerExists && !ctxHandlerExists {
 		return &CallToolResult{
 			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("Unknown tool: %s", name)}},
 			IsError: true,
@@ -403,7 +477,15 @@ func (s *Server) handleCallTool(params interface{}) (*CallToolResult, error) {
 	}
 
 	startTime := time.Now()
-	result, err := handler(arguments)
+	var result *CallToolResult
+	var err error
+
+	// Prefer context-aware handler if available
+	if ctxHandlerExists {
+		result, err = ctxHandler(ctx, arguments)
+	} else {
+		result, err = handler(arguments)
+	}
 	duration := time.Since(startTime)
 
 	success := err == nil && (result == nil || !result.IsError)
