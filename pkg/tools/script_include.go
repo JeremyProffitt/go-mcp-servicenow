@@ -11,10 +11,14 @@ import (
 func (r *Registry) registerScriptIncludeTools(server *mcp.Server) int {
 	count := 0
 
+	// Helper for limit constraints
+	limitMin := float64(1)
+	limitMax := float64(1000)
+
 	// List Script Includes
 	server.RegisterTool(mcp.Tool{
 		Name:        "list_script_includes",
-		Description: "List script includes from ServiceNow",
+		Description: "List script includes with optional filtering. Script includes are reusable server-side JavaScript functions.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
@@ -22,14 +26,16 @@ func (r *Registry) registerScriptIncludeTools(server *mcp.Server) int {
 					Type:        "number",
 					Description: "Maximum number of script includes to return (default: 50)",
 					Default:     50,
+					Minimum:     &limitMin,
+					Maximum:     &limitMax,
 				},
 				"active": {
 					Type:        "boolean",
-					Description: "Filter by active status",
+					Description: "Filter by active status (true = only active, false = only inactive)",
 				},
 				"query": {
 					Type:        "string",
-					Description: "Search query for name or API name",
+					Description: "Search query (searches name and API name)",
 				},
 			},
 		},
@@ -45,13 +51,13 @@ func (r *Registry) registerScriptIncludeTools(server *mcp.Server) int {
 	// Get Script Include
 	server.RegisterTool(mcp.Tool{
 		Name:        "get_script_include",
-		Description: "Get a specific script include from ServiceNow",
+		Description: "Get detailed information about a script include including the full script code.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
 				"script_id": {
 					Type:        "string",
-					Description: "Script include sys_id or name",
+					Description: "Script include sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6') or name. Accepts both formats.",
 				},
 			},
 			Required: []string{"script_id"},
@@ -70,21 +76,21 @@ func (r *Registry) registerScriptIncludeTools(server *mcp.Server) int {
 		// Create Script Include
 		server.RegisterTool(mcp.Tool{
 			Name:        "create_script_include",
-			Description: "Create a new script include in ServiceNow",
+			Description: "Create a new script include. Script includes are reusable server-side JavaScript functions.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"name": {
 						Type:        "string",
-						Description: "Script include name",
+						Description: "Script include display name",
 					},
 					"api_name": {
 						Type:        "string",
-						Description: "API name (must be unique)",
+						Description: "API name used to call the script (must be unique, no spaces)",
 					},
 					"script": {
 						Type:        "string",
-						Description: "Script content",
+						Description: "JavaScript code content",
 					},
 					"description": {
 						Type:        "string",
@@ -92,10 +98,13 @@ func (r *Registry) registerScriptIncludeTools(server *mcp.Server) int {
 					},
 					"client_callable": {
 						Type:        "boolean",
-						Description: "Whether the script is client callable",
+						Description: "Whether the script can be called from client-side code via GlideAjax",
 					},
 				},
 				Required: []string{"name", "api_name", "script"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Create Script Include",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.createScriptInclude(args)
@@ -105,21 +114,21 @@ func (r *Registry) registerScriptIncludeTools(server *mcp.Server) int {
 		// Update Script Include
 		server.RegisterTool(mcp.Tool{
 			Name:        "update_script_include",
-			Description: "Update an existing script include in ServiceNow",
+			Description: "Update an existing script include. At least one field besides script_id must be provided.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"script_id": {
 						Type:        "string",
-						Description: "Script include sys_id",
+						Description: "Script include sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"name": {
 						Type:        "string",
-						Description: "Script include name",
+						Description: "Script include display name",
 					},
 					"script": {
 						Type:        "string",
-						Description: "Script content",
+						Description: "JavaScript code content",
 					},
 					"description": {
 						Type:        "string",
@@ -127,10 +136,13 @@ func (r *Registry) registerScriptIncludeTools(server *mcp.Server) int {
 					},
 					"active": {
 						Type:        "boolean",
-						Description: "Active status",
+						Description: "Active status (true to activate, false to deactivate)",
 					},
 				},
 				Required: []string{"script_id"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Update Script Include",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.updateScriptInclude(args)
@@ -140,13 +152,13 @@ func (r *Registry) registerScriptIncludeTools(server *mcp.Server) int {
 		// Delete Script Include
 		server.RegisterTool(mcp.Tool{
 			Name:        "delete_script_include",
-			Description: "Delete a script include from ServiceNow",
+			Description: "Permanently delete a script include. This action cannot be undone.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"script_id": {
 						Type:        "string",
-						Description: "Script include sys_id",
+						Description: "Script include sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 				},
 				Required: []string{"script_id"},

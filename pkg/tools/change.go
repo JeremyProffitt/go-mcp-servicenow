@@ -11,10 +11,15 @@ import (
 func (r *Registry) registerChangeTools(server *mcp.Server) int {
 	count := 0
 
+	// Helper for limit/offset constraints
+	limitMin := float64(1)
+	limitMax := float64(1000)
+	offsetMin := float64(0)
+
 	// List Change Requests
 	server.RegisterTool(mcp.Tool{
 		Name:        "list_change_requests",
-		Description: "List change requests from ServiceNow with filtering options",
+		Description: "List change requests with optional filtering by state, type, or assignee. Returns key details for each change request.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
@@ -22,24 +27,28 @@ func (r *Registry) registerChangeTools(server *mcp.Server) int {
 					Type:        "number",
 					Description: "Maximum number of change requests to return (default: 10)",
 					Default:     10,
+					Minimum:     &limitMin,
+					Maximum:     &limitMax,
 				},
 				"offset": {
 					Type:        "number",
-					Description: "Offset for pagination",
+					Description: "Offset for pagination (default: 0)",
 					Default:     0,
+					Minimum:     &offsetMin,
 				},
 				"state": {
 					Type:        "string",
-					Description: "Filter by state",
+					Description: "Filter by change state (-5=New, -4=Assess, -3=Authorize, -2=Scheduled, -1=Implement, 0=Review, 3=Closed, 4=Canceled)",
+					Enum:        []string{"-5", "-4", "-3", "-2", "-1", "0", "3", "4"},
 				},
 				"type": {
 					Type:        "string",
-					Description: "Filter by change type (normal, standard, emergency)",
+					Description: "Filter by change type",
 					Enum:        []string{"normal", "standard", "emergency"},
 				},
 				"assigned_to": {
 					Type:        "string",
-					Description: "Filter by assigned user",
+					Description: "Filter by assigned user (sys_id, username, or email)",
 				},
 			},
 		},
@@ -55,13 +64,13 @@ func (r *Registry) registerChangeTools(server *mcp.Server) int {
 	// Get Change Request Details
 	server.RegisterTool(mcp.Tool{
 		Name:        "get_change_request",
-		Description: "Get detailed information about a specific change request",
+		Description: "Get detailed information about a specific change request including all fields, tasks, and approval status.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
 				"change_id": {
 					Type:        "string",
-					Description: "Change request number (e.g., CHG0010001) or sys_id",
+					Description: "Change request number (e.g., 'CHG0010001') or sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'). Accepts both formats.",
 				},
 			},
 			Required: []string{"change_id"},
@@ -80,57 +89,63 @@ func (r *Registry) registerChangeTools(server *mcp.Server) int {
 		// Create Change Request
 		server.RegisterTool(mcp.Tool{
 			Name:        "create_change_request",
-			Description: "Create a new change request in ServiceNow",
+			Description: "Create a new change request. Returns the new change number and sys_id upon successful creation.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"short_description": {
 						Type:        "string",
-						Description: "Short description of the change",
+						Description: "Brief summary of the change (required)",
 					},
 					"type": {
 						Type:        "string",
-						Description: "Type of change (normal, standard, emergency)",
+						Description: "Type of change: 'normal' (CAB review required), 'standard' (pre-approved), 'emergency' (expedited)",
 						Enum:        []string{"normal", "standard", "emergency"},
 					},
 					"description": {
 						Type:        "string",
-						Description: "Detailed description of the change",
+						Description: "Detailed description including business justification and implementation plan",
 					},
 					"category": {
 						Type:        "string",
-						Description: "Category of the change",
+						Description: "Category of the change (e.g., 'Hardware', 'Software', 'Network')",
 					},
 					"priority": {
 						Type:        "string",
-						Description: "Priority (1-5)",
+						Description: "Priority level (1=Critical, 2=High, 3=Moderate, 4=Low, 5=Planning)",
+						Enum:        []string{"1", "2", "3", "4", "5"},
 					},
 					"risk": {
 						Type:        "string",
-						Description: "Risk level",
+						Description: "Risk level (1=Very High, 2=High, 3=Moderate, 4=Low)",
+						Enum:        []string{"1", "2", "3", "4"},
 					},
 					"impact": {
 						Type:        "string",
-						Description: "Impact level",
+						Description: "Business impact level (1=High, 2=Medium, 3=Low)",
+						Enum:        []string{"1", "2", "3"},
 					},
 					"assigned_to": {
 						Type:        "string",
-						Description: "Assigned user",
+						Description: "User to assign the change to (sys_id, username, or email)",
 					},
 					"assignment_group": {
 						Type:        "string",
-						Description: "Assignment group",
+						Description: "Group to assign the change to (sys_id or group name)",
 					},
 					"start_date": {
 						Type:        "string",
-						Description: "Planned start date",
+						Description: "Planned start date/time (format: YYYY-MM-DD HH:MM:SS)",
 					},
 					"end_date": {
 						Type:        "string",
-						Description: "Planned end date",
+						Description: "Planned end date/time (format: YYYY-MM-DD HH:MM:SS)",
 					},
 				},
 				Required: []string{"short_description", "type"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Create Change Request",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.createChangeRequest(args)
@@ -140,40 +155,45 @@ func (r *Registry) registerChangeTools(server *mcp.Server) int {
 		// Update Change Request
 		server.RegisterTool(mcp.Tool{
 			Name:        "update_change_request",
-			Description: "Update an existing change request",
+			Description: "Update an existing change request. At least one field besides change_id must be provided to make changes.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"change_id": {
 						Type:        "string",
-						Description: "Change request number or sys_id",
+						Description: "Change request number (e.g., 'CHG0010001') or sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'). Accepts both formats.",
 					},
 					"short_description": {
 						Type:        "string",
-						Description: "Short description",
+						Description: "Brief summary of the change",
 					},
 					"description": {
 						Type:        "string",
-						Description: "Detailed description",
+						Description: "Detailed description of the change",
 					},
 					"state": {
 						Type:        "string",
-						Description: "State of the change",
+						Description: "Change state (-5=New, -4=Assess, -3=Authorize, -2=Scheduled, -1=Implement, 0=Review, 3=Closed, 4=Canceled)",
+						Enum:        []string{"-5", "-4", "-3", "-2", "-1", "0", "3", "4"},
 					},
 					"priority": {
 						Type:        "string",
-						Description: "Priority",
+						Description: "Priority level (1=Critical, 2=High, 3=Moderate, 4=Low, 5=Planning)",
+						Enum:        []string{"1", "2", "3", "4", "5"},
 					},
 					"assigned_to": {
 						Type:        "string",
-						Description: "Assigned user",
+						Description: "User to assign the change to (sys_id, username, or email)",
 					},
 					"work_notes": {
 						Type:        "string",
-						Description: "Work notes to add",
+						Description: "Internal work notes to add (visible only to support staff)",
 					},
 				},
 				Required: []string{"change_id"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Update Change Request",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.updateChangeRequest(args)
@@ -183,32 +203,35 @@ func (r *Registry) registerChangeTools(server *mcp.Server) int {
 		// Add Change Task
 		server.RegisterTool(mcp.Tool{
 			Name:        "add_change_task",
-			Description: "Add a task to a change request",
+			Description: "Add a task to a change request. Tasks represent individual work items within the change implementation.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"change_id": {
 						Type:        "string",
-						Description: "Change request number or sys_id",
+						Description: "Change request number (e.g., 'CHG0010001') or sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'). Accepts both formats.",
 					},
 					"short_description": {
 						Type:        "string",
-						Description: "Task description",
+						Description: "Brief description of the task",
 					},
 					"assigned_to": {
 						Type:        "string",
-						Description: "Assigned user",
+						Description: "User to assign the task to (sys_id, username, or email)",
 					},
 					"planned_start_date": {
 						Type:        "string",
-						Description: "Planned start date",
+						Description: "Planned start date/time (format: YYYY-MM-DD HH:MM:SS)",
 					},
 					"planned_end_date": {
 						Type:        "string",
-						Description: "Planned end date",
+						Description: "Planned end date/time (format: YYYY-MM-DD HH:MM:SS)",
 					},
 				},
 				Required: []string{"change_id", "short_description"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Add Change Task",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.addChangeTask(args)
@@ -218,16 +241,19 @@ func (r *Registry) registerChangeTools(server *mcp.Server) int {
 		// Submit Change for Approval
 		server.RegisterTool(mcp.Tool{
 			Name:        "submit_change_for_approval",
-			Description: "Submit a change request for approval",
+			Description: "Submit a change request for approval. Moves the change to the Assess state to trigger the approval workflow.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"change_id": {
 						Type:        "string",
-						Description: "Change request number or sys_id",
+						Description: "Change request number (e.g., 'CHG0010001') or sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'). Accepts both formats.",
 					},
 				},
 				Required: []string{"change_id"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Submit Change for Approval",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.submitChangeForApproval(args)
@@ -237,20 +263,23 @@ func (r *Registry) registerChangeTools(server *mcp.Server) int {
 		// Approve Change
 		server.RegisterTool(mcp.Tool{
 			Name:        "approve_change",
-			Description: "Approve a change request",
+			Description: "Approve a pending change request. Only works if there is a pending approval for the current user.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"change_id": {
 						Type:        "string",
-						Description: "Change request number or sys_id",
+						Description: "Change request number (e.g., 'CHG0010001') or sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'). Accepts both formats.",
 					},
 					"comments": {
 						Type:        "string",
-						Description: "Approval comments",
+						Description: "Optional approval comments",
 					},
 				},
 				Required: []string{"change_id"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Approve Change",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.approveChange(args)
@@ -260,20 +289,23 @@ func (r *Registry) registerChangeTools(server *mcp.Server) int {
 		// Reject Change
 		server.RegisterTool(mcp.Tool{
 			Name:        "reject_change",
-			Description: "Reject a change request",
+			Description: "Reject a pending change request. Only works if there is a pending approval for the current user.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"change_id": {
 						Type:        "string",
-						Description: "Change request number or sys_id",
+						Description: "Change request number (e.g., 'CHG0010001') or sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'). Accepts both formats.",
 					},
 					"reason": {
 						Type:        "string",
-						Description: "Rejection reason",
+						Description: "Reason for rejecting the change request (required)",
 					},
 				},
 				Required: []string{"change_id", "reason"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Reject Change",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.rejectChange(args)

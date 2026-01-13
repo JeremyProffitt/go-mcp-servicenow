@@ -11,10 +11,14 @@ import (
 func (r *Registry) registerChangesetTools(server *mcp.Server) int {
 	count := 0
 
+	// Helper for limit constraints
+	limitMin := float64(1)
+	limitMax := float64(1000)
+
 	// List Changesets
 	server.RegisterTool(mcp.Tool{
 		Name:        "list_changesets",
-		Description: "List changesets (update sets) from ServiceNow",
+		Description: "List changesets (update sets) with optional filtering. Update sets are containers for capturing configuration changes.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
@@ -22,10 +26,13 @@ func (r *Registry) registerChangesetTools(server *mcp.Server) int {
 					Type:        "number",
 					Description: "Maximum number of changesets to return (default: 50)",
 					Default:     50,
+					Minimum:     &limitMin,
+					Maximum:     &limitMax,
 				},
 				"state": {
 					Type:        "string",
-					Description: "Filter by state (in progress, complete, etc.)",
+					Description: "Filter by state",
+					Enum:        []string{"in progress", "complete", "ignore"},
 				},
 				"created_by": {
 					Type:        "string",
@@ -45,13 +52,13 @@ func (r *Registry) registerChangesetTools(server *mcp.Server) int {
 	// Get Changeset Details
 	server.RegisterTool(mcp.Tool{
 		Name:        "get_changeset",
-		Description: "Get detailed information about a specific changeset",
+		Description: "Get detailed information about a changeset (update set) including contained changes.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
 				"changeset_id": {
 					Type:        "string",
-					Description: "Changeset sys_id or name",
+					Description: "Changeset sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6') or name. Accepts both formats.",
 				},
 			},
 			Required: []string{"changeset_id"},
@@ -70,13 +77,13 @@ func (r *Registry) registerChangesetTools(server *mcp.Server) int {
 		// Create Changeset
 		server.RegisterTool(mcp.Tool{
 			Name:        "create_changeset",
-			Description: "Create a new changeset (update set) in ServiceNow",
+			Description: "Create a new changeset (update set). Use update sets to capture and migrate configuration changes.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"name": {
 						Type:        "string",
-						Description: "Changeset name",
+						Description: "Changeset name (must be unique)",
 					},
 					"description": {
 						Type:        "string",
@@ -84,10 +91,13 @@ func (r *Registry) registerChangesetTools(server *mcp.Server) int {
 					},
 					"application": {
 						Type:        "string",
-						Description: "Application sys_id",
+						Description: "Application sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 				},
 				Required: []string{"name"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Create Changeset",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.createChangeset(args)
@@ -97,13 +107,13 @@ func (r *Registry) registerChangesetTools(server *mcp.Server) int {
 		// Update Changeset
 		server.RegisterTool(mcp.Tool{
 			Name:        "update_changeset",
-			Description: "Update an existing changeset",
+			Description: "Update an existing changeset. At least one field besides changeset_id must be provided.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"changeset_id": {
 						Type:        "string",
-						Description: "Changeset sys_id",
+						Description: "Changeset sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"name": {
 						Type:        "string",
@@ -116,6 +126,9 @@ func (r *Registry) registerChangesetTools(server *mcp.Server) int {
 				},
 				Required: []string{"changeset_id"},
 			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Update Changeset",
+			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.updateChangeset(args)
 		})
@@ -124,16 +137,19 @@ func (r *Registry) registerChangesetTools(server *mcp.Server) int {
 		// Commit Changeset
 		server.RegisterTool(mcp.Tool{
 			Name:        "commit_changeset",
-			Description: "Commit a changeset (mark as complete)",
+			Description: "Commit a changeset by marking it as complete. Completed changesets can be exported or deployed to other instances.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"changeset_id": {
 						Type:        "string",
-						Description: "Changeset sys_id",
+						Description: "Changeset sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 				},
 				Required: []string{"changeset_id"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Commit Changeset",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.commitChangeset(args)

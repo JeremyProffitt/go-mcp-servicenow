@@ -11,10 +11,14 @@ import (
 func (r *Registry) registerAgileTools(server *mcp.Server) int {
 	count := 0
 
+	// Helper for limit constraints
+	limitMin := float64(1)
+	limitMax := float64(1000)
+
 	// === Stories ===
 	server.RegisterTool(mcp.Tool{
 		Name:        "list_stories",
-		Description: "List user stories from ServiceNow",
+		Description: "List user stories with optional filtering by state, sprint, or assignee. Stories represent work items in Agile development.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
@@ -22,18 +26,20 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 					Type:        "number",
 					Description: "Maximum number of stories to return (default: 50)",
 					Default:     50,
+					Minimum:     &limitMin,
+					Maximum:     &limitMax,
 				},
 				"state": {
 					Type:        "string",
-					Description: "Filter by state",
+					Description: "Filter by state (e.g., 'Draft', 'Ready', 'In Progress', 'Complete')",
 				},
 				"sprint": {
 					Type:        "string",
-					Description: "Filter by sprint sys_id",
+					Description: "Filter by sprint sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 				},
 				"assigned_to": {
 					Type:        "string",
-					Description: "Filter by assigned user",
+					Description: "Filter by assigned user (sys_id, username, or email)",
 				},
 			},
 		},
@@ -49,7 +55,7 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 	// === Epics ===
 	server.RegisterTool(mcp.Tool{
 		Name:        "list_epics",
-		Description: "List epics from ServiceNow",
+		Description: "List epics with optional filtering. Epics are large bodies of work that contain multiple stories.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
@@ -57,14 +63,16 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 					Type:        "number",
 					Description: "Maximum number of epics to return (default: 50)",
 					Default:     50,
+					Minimum:     &limitMin,
+					Maximum:     &limitMax,
 				},
 				"state": {
 					Type:        "string",
-					Description: "Filter by state",
+					Description: "Filter by state (e.g., 'Draft', 'Analysis', 'Development', 'Complete')",
 				},
 				"product": {
 					Type:        "string",
-					Description: "Filter by product sys_id",
+					Description: "Filter by product sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 				},
 			},
 		},
@@ -80,7 +88,7 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 	// === Scrum Tasks ===
 	server.RegisterTool(mcp.Tool{
 		Name:        "list_scrum_tasks",
-		Description: "List scrum tasks from ServiceNow",
+		Description: "List scrum tasks with optional filtering. Tasks are work items that implement a story.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
@@ -88,18 +96,20 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 					Type:        "number",
 					Description: "Maximum number of tasks to return (default: 50)",
 					Default:     50,
+					Minimum:     &limitMin,
+					Maximum:     &limitMax,
 				},
 				"story": {
 					Type:        "string",
-					Description: "Filter by story sys_id",
+					Description: "Filter by parent story sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 				},
 				"state": {
 					Type:        "string",
-					Description: "Filter by state",
+					Description: "Filter by state (e.g., 'Draft', 'Ready', 'Work in progress', 'Complete')",
 				},
 				"assigned_to": {
 					Type:        "string",
-					Description: "Filter by assigned user",
+					Description: "Filter by assigned user (sys_id, username, or email)",
 				},
 			},
 		},
@@ -115,7 +125,7 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 	// === Projects ===
 	server.RegisterTool(mcp.Tool{
 		Name:        "list_projects",
-		Description: "List projects from ServiceNow",
+		Description: "List projects with optional filtering by state or active status.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
@@ -123,14 +133,16 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 					Type:        "number",
 					Description: "Maximum number of projects to return (default: 50)",
 					Default:     50,
+					Minimum:     &limitMin,
+					Maximum:     &limitMax,
 				},
 				"state": {
 					Type:        "string",
-					Description: "Filter by state",
+					Description: "Filter by state (e.g., 'Draft', 'Pending', 'Open', 'Work in progress', 'Closed')",
 				},
 				"active": {
 					Type:        "boolean",
-					Description: "Filter by active status",
+					Description: "Filter by active status (true = only active, false = only inactive)",
 				},
 			},
 		},
@@ -148,40 +160,43 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 		// Create Story
 		server.RegisterTool(mcp.Tool{
 			Name:        "create_story",
-			Description: "Create a new user story in ServiceNow",
+			Description: "Create a new user story. Stories represent work items in Agile development.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"short_description": {
 						Type:        "string",
-						Description: "Story title",
+						Description: "Story title/summary",
 					},
 					"description": {
 						Type:        "string",
-						Description: "Story description",
+						Description: "Story description including acceptance criteria",
 					},
 					"product": {
 						Type:        "string",
-						Description: "Product sys_id",
+						Description: "Product sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"epic": {
 						Type:        "string",
-						Description: "Epic sys_id",
+						Description: "Parent epic sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"sprint": {
 						Type:        "string",
-						Description: "Sprint sys_id",
+						Description: "Sprint sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"story_points": {
 						Type:        "number",
-						Description: "Story points",
+						Description: "Story points (effort estimate, typically Fibonacci sequence: 1, 2, 3, 5, 8, 13)",
 					},
 					"assigned_to": {
 						Type:        "string",
-						Description: "Assigned user",
+						Description: "Assigned user (sys_id, username, or email)",
 					},
 				},
 				Required: []string{"short_description"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Create Story",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.createStory(args)
@@ -191,25 +206,25 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 		// Update Story
 		server.RegisterTool(mcp.Tool{
 			Name:        "update_story",
-			Description: "Update an existing user story",
+			Description: "Update an existing user story. At least one field besides story_id must be provided.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"story_id": {
 						Type:        "string",
-						Description: "Story sys_id",
+						Description: "Story sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"short_description": {
 						Type:        "string",
-						Description: "Story title",
+						Description: "Story title/summary",
 					},
 					"state": {
 						Type:        "string",
-						Description: "Story state",
+						Description: "Story state (e.g., 'Draft', 'Ready', 'In Progress', 'Complete')",
 					},
 					"story_points": {
 						Type:        "number",
-						Description: "Story points",
+						Description: "Story points (effort estimate)",
 					},
 					"blocked": {
 						Type:        "boolean",
@@ -217,6 +232,9 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 					},
 				},
 				Required: []string{"story_id"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Update Story",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.updateStory(args)
@@ -226,13 +244,13 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 		// Create Epic
 		server.RegisterTool(mcp.Tool{
 			Name:        "create_epic",
-			Description: "Create a new epic in ServiceNow",
+			Description: "Create a new epic. Epics are large bodies of work that contain multiple stories.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"short_description": {
 						Type:        "string",
-						Description: "Epic title",
+						Description: "Epic title/summary",
 					},
 					"description": {
 						Type:        "string",
@@ -240,10 +258,13 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 					},
 					"product": {
 						Type:        "string",
-						Description: "Product sys_id",
+						Description: "Product sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 				},
 				Required: []string{"short_description"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Create Epic",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.createEpic(args)
@@ -253,24 +274,27 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 		// Update Epic
 		server.RegisterTool(mcp.Tool{
 			Name:        "update_epic",
-			Description: "Update an existing epic",
+			Description: "Update an existing epic. At least one field besides epic_id must be provided.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"epic_id": {
 						Type:        "string",
-						Description: "Epic sys_id",
+						Description: "Epic sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"short_description": {
 						Type:        "string",
-						Description: "Epic title",
+						Description: "Epic title/summary",
 					},
 					"state": {
 						Type:        "string",
-						Description: "Epic state",
+						Description: "Epic state (e.g., 'Draft', 'Analysis', 'Development', 'Complete')",
 					},
 				},
 				Required: []string{"epic_id"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Update Epic",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.updateEpic(args)
@@ -280,32 +304,35 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 		// Create Scrum Task
 		server.RegisterTool(mcp.Tool{
 			Name:        "create_scrum_task",
-			Description: "Create a new scrum task in ServiceNow",
+			Description: "Create a new scrum task. Tasks are work items that implement a story.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"short_description": {
 						Type:        "string",
-						Description: "Task title",
+						Description: "Task title/summary",
 					},
 					"story": {
 						Type:        "string",
-						Description: "Parent story sys_id",
+						Description: "Parent story sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"type": {
 						Type:        "string",
-						Description: "Task type",
+						Description: "Task type (e.g., 'Development', 'Testing', 'Documentation')",
 					},
 					"assigned_to": {
 						Type:        "string",
-						Description: "Assigned user",
+						Description: "Assigned user (sys_id, username, or email)",
 					},
 					"time_remaining": {
 						Type:        "number",
-						Description: "Remaining hours",
+						Description: "Remaining hours of work",
 					},
 				},
 				Required: []string{"short_description"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Create Scrum Task",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.createScrumTask(args)
@@ -315,24 +342,27 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 		// Update Scrum Task
 		server.RegisterTool(mcp.Tool{
 			Name:        "update_scrum_task",
-			Description: "Update an existing scrum task",
+			Description: "Update an existing scrum task. At least one field besides task_id must be provided.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"task_id": {
 						Type:        "string",
-						Description: "Task sys_id",
+						Description: "Task sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"state": {
 						Type:        "string",
-						Description: "Task state",
+						Description: "Task state (e.g., 'Draft', 'Ready', 'Work in progress', 'Complete')",
 					},
 					"time_remaining": {
 						Type:        "number",
-						Description: "Remaining hours",
+						Description: "Remaining hours of work",
 					},
 				},
 				Required: []string{"task_id"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Update Scrum Task",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.updateScrumTask(args)
@@ -342,13 +372,13 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 		// Create Project
 		server.RegisterTool(mcp.Tool{
 			Name:        "create_project",
-			Description: "Create a new project in ServiceNow",
+			Description: "Create a new project. Projects are used for tracking larger initiatives.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"short_description": {
 						Type:        "string",
-						Description: "Project title",
+						Description: "Project title/summary",
 					},
 					"description": {
 						Type:        "string",
@@ -356,14 +386,17 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 					},
 					"start_date": {
 						Type:        "string",
-						Description: "Project start date",
+						Description: "Project start date (format: YYYY-MM-DD)",
 					},
 					"end_date": {
 						Type:        "string",
-						Description: "Project end date",
+						Description: "Project end date (format: YYYY-MM-DD)",
 					},
 				},
 				Required: []string{"short_description"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Create Project",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.createProject(args)
@@ -373,24 +406,27 @@ func (r *Registry) registerAgileTools(server *mcp.Server) int {
 		// Update Project
 		server.RegisterTool(mcp.Tool{
 			Name:        "update_project",
-			Description: "Update an existing project",
+			Description: "Update an existing project. At least one field besides project_id must be provided.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"project_id": {
 						Type:        "string",
-						Description: "Project sys_id",
+						Description: "Project sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"short_description": {
 						Type:        "string",
-						Description: "Project title",
+						Description: "Project title/summary",
 					},
 					"state": {
 						Type:        "string",
-						Description: "Project state",
+						Description: "Project state (e.g., 'Draft', 'Pending', 'Open', 'Work in progress', 'Closed')",
 					},
 				},
 				Required: []string{"project_id"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Update Project",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.updateProject(args)

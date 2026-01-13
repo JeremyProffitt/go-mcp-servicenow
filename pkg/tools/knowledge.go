@@ -11,10 +11,15 @@ import (
 func (r *Registry) registerKnowledgeBaseTools(server *mcp.Server) int {
 	count := 0
 
+	// Helper for limit/offset constraints
+	limitMin := float64(1)
+	limitMax := float64(1000)
+	offsetMin := float64(0)
+
 	// List Knowledge Bases
 	server.RegisterTool(mcp.Tool{
 		Name:        "list_knowledge_bases",
-		Description: "List knowledge bases from ServiceNow",
+		Description: "List knowledge bases. Knowledge bases are containers for organizing articles by topic or department.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
@@ -22,10 +27,12 @@ func (r *Registry) registerKnowledgeBaseTools(server *mcp.Server) int {
 					Type:        "number",
 					Description: "Maximum number of knowledge bases to return (default: 50)",
 					Default:     50,
+					Minimum:     &limitMin,
+					Maximum:     &limitMax,
 				},
 				"active": {
 					Type:        "boolean",
-					Description: "Filter by active status",
+					Description: "Filter by active status (true = only active, false = only inactive)",
 				},
 			},
 		},
@@ -41,7 +48,7 @@ func (r *Registry) registerKnowledgeBaseTools(server *mcp.Server) int {
 	// List Articles
 	server.RegisterTool(mcp.Tool{
 		Name:        "list_knowledge_articles",
-		Description: "List knowledge articles from ServiceNow",
+		Description: "List knowledge articles with optional filtering by knowledge base, category, or search query.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
@@ -49,23 +56,26 @@ func (r *Registry) registerKnowledgeBaseTools(server *mcp.Server) int {
 					Type:        "number",
 					Description: "Maximum number of articles to return (default: 20)",
 					Default:     20,
+					Minimum:     &limitMin,
+					Maximum:     &limitMax,
 				},
 				"offset": {
 					Type:        "number",
-					Description: "Offset for pagination",
+					Description: "Offset for pagination (default: 0)",
 					Default:     0,
+					Minimum:     &offsetMin,
 				},
 				"knowledge_base": {
 					Type:        "string",
-					Description: "Filter by knowledge base sys_id",
+					Description: "Filter by knowledge base sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 				},
 				"category": {
 					Type:        "string",
-					Description: "Filter by category sys_id",
+					Description: "Filter by category sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 				},
 				"query": {
 					Type:        "string",
-					Description: "Search query",
+					Description: "Search query (searches title and body text). For advanced filtering, use ServiceNow encoded query syntax (^ for AND, | for OR)",
 				},
 			},
 		},
@@ -81,13 +91,13 @@ func (r *Registry) registerKnowledgeBaseTools(server *mcp.Server) int {
 	// Get Article
 	server.RegisterTool(mcp.Tool{
 		Name:        "get_knowledge_article",
-		Description: "Get a specific knowledge article by ID or number",
+		Description: "Get detailed information about a specific knowledge article including full content.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
 				"article_id": {
 					Type:        "string",
-					Description: "Article sys_id or number",
+					Description: "Article number (e.g., 'KB0010001') or sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'). Accepts both formats.",
 				},
 			},
 			Required: []string{"article_id"},
@@ -104,22 +114,24 @@ func (r *Registry) registerKnowledgeBaseTools(server *mcp.Server) int {
 	// List KB Categories
 	server.RegisterTool(mcp.Tool{
 		Name:        "list_kb_categories",
-		Description: "List knowledge base categories",
+		Description: "List knowledge base categories. Categories organize articles within a knowledge base and can be nested.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
 				"knowledge_base": {
 					Type:        "string",
-					Description: "Filter by knowledge base sys_id",
+					Description: "Filter by knowledge base sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 				},
 				"parent": {
 					Type:        "string",
-					Description: "Filter by parent category sys_id",
+					Description: "Filter by parent category sys_id to get subcategories",
 				},
 				"limit": {
 					Type:        "number",
 					Description: "Maximum number of categories to return (default: 100)",
 					Default:     100,
+					Minimum:     &limitMin,
+					Maximum:     &limitMax,
 				},
 			},
 		},
@@ -137,13 +149,13 @@ func (r *Registry) registerKnowledgeBaseTools(server *mcp.Server) int {
 		// Create Knowledge Base
 		server.RegisterTool(mcp.Tool{
 			Name:        "create_knowledge_base",
-			Description: "Create a new knowledge base in ServiceNow",
+			Description: "Create a new knowledge base. Knowledge bases are containers for organizing articles by topic or department.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"title": {
 						Type:        "string",
-						Description: "Knowledge base title",
+						Description: "Knowledge base title/name",
 					},
 					"description": {
 						Type:        "string",
@@ -151,10 +163,13 @@ func (r *Registry) registerKnowledgeBaseTools(server *mcp.Server) int {
 					},
 					"owner": {
 						Type:        "string",
-						Description: "Owner user sys_id",
+						Description: "Owner user sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 				},
 				Required: []string{"title"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Create Knowledge Base",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.createKnowledgeBase(args)
@@ -164,7 +179,7 @@ func (r *Registry) registerKnowledgeBaseTools(server *mcp.Server) int {
 		// Create KB Category
 		server.RegisterTool(mcp.Tool{
 			Name:        "create_kb_category",
-			Description: "Create a new category in a knowledge base",
+			Description: "Create a new category within a knowledge base. Categories can be nested to create a hierarchy.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
@@ -174,14 +189,17 @@ func (r *Registry) registerKnowledgeBaseTools(server *mcp.Server) int {
 					},
 					"knowledge_base": {
 						Type:        "string",
-						Description: "Knowledge base sys_id",
+						Description: "Knowledge base sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"parent": {
 						Type:        "string",
-						Description: "Parent category sys_id (for subcategories)",
+						Description: "Parent category sys_id for creating subcategories",
 					},
 				},
 				Required: []string{"label", "knowledge_base"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Create KB Category",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.createKBCategory(args)
@@ -191,7 +209,7 @@ func (r *Registry) registerKnowledgeBaseTools(server *mcp.Server) int {
 		// Create Article
 		server.RegisterTool(mcp.Tool{
 			Name:        "create_knowledge_article",
-			Description: "Create a new knowledge article in ServiceNow",
+			Description: "Create a new knowledge article. Articles are created in draft state and must be published separately.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
@@ -201,18 +219,21 @@ func (r *Registry) registerKnowledgeBaseTools(server *mcp.Server) int {
 					},
 					"text": {
 						Type:        "string",
-						Description: "Article body/content",
+						Description: "Article body/content (supports HTML formatting)",
 					},
 					"knowledge_base": {
 						Type:        "string",
-						Description: "Knowledge base sys_id",
+						Description: "Knowledge base sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"category": {
 						Type:        "string",
-						Description: "Category sys_id",
+						Description: "Category sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 				},
 				Required: []string{"short_description", "text", "knowledge_base"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Create Knowledge Article",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.createKnowledgeArticle(args)
@@ -222,13 +243,13 @@ func (r *Registry) registerKnowledgeBaseTools(server *mcp.Server) int {
 		// Update Article
 		server.RegisterTool(mcp.Tool{
 			Name:        "update_knowledge_article",
-			Description: "Update an existing knowledge article",
+			Description: "Update an existing knowledge article. At least one field besides article_id must be provided.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"article_id": {
 						Type:        "string",
-						Description: "Article sys_id",
+						Description: "Article sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"short_description": {
 						Type:        "string",
@@ -236,14 +257,17 @@ func (r *Registry) registerKnowledgeBaseTools(server *mcp.Server) int {
 					},
 					"text": {
 						Type:        "string",
-						Description: "Article body",
+						Description: "Article body/content (supports HTML formatting)",
 					},
 					"category": {
 						Type:        "string",
-						Description: "Category sys_id",
+						Description: "Category sys_id to move the article to",
 					},
 				},
 				Required: []string{"article_id"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Update Knowledge Article",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.updateKnowledgeArticle(args)
@@ -253,16 +277,19 @@ func (r *Registry) registerKnowledgeBaseTools(server *mcp.Server) int {
 		// Publish Article
 		server.RegisterTool(mcp.Tool{
 			Name:        "publish_knowledge_article",
-			Description: "Publish a knowledge article",
+			Description: "Publish a knowledge article to make it visible to users. Article must be in draft state.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"article_id": {
 						Type:        "string",
-						Description: "Article sys_id",
+						Description: "Article sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 				},
 				Required: []string{"article_id"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Publish Knowledge Article",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.publishKnowledgeArticle(args)

@@ -11,10 +11,15 @@ import (
 func (r *Registry) registerIncidentTools(server *mcp.Server) int {
 	count := 0
 
+	// Helper for limit/offset constraints
+	limitMin := float64(1)
+	limitMax := float64(1000)
+	offsetMin := float64(0)
+
 	// List Incidents (read-only)
 	server.RegisterTool(mcp.Tool{
 		Name:        "list_incidents",
-		Description: "List incidents from ServiceNow with optional filtering",
+		Description: "List incidents with optional filtering by state, assignee, category, or search query. Use the query parameter for advanced filtering with ServiceNow encoded query syntax.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
@@ -22,27 +27,31 @@ func (r *Registry) registerIncidentTools(server *mcp.Server) int {
 					Type:        "number",
 					Description: "Maximum number of incidents to return (default: 10)",
 					Default:     10,
+					Minimum:     &limitMin,
+					Maximum:     &limitMax,
 				},
 				"offset": {
 					Type:        "number",
 					Description: "Offset for pagination (default: 0)",
 					Default:     0,
+					Minimum:     &offsetMin,
 				},
 				"state": {
 					Type:        "string",
-					Description: "Filter by incident state",
+					Description: "Filter by incident state (1=New, 2=In Progress, 3=On Hold, 6=Resolved, 7=Closed, 8=Canceled)",
+					Enum:        []string{"1", "2", "3", "6", "7", "8"},
 				},
 				"assigned_to": {
 					Type:        "string",
-					Description: "Filter by assigned user",
+					Description: "Filter by assigned user (accepts username, email, or sys_id e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 				},
 				"category": {
 					Type:        "string",
-					Description: "Filter by category",
+					Description: "Filter by category name (e.g., 'Hardware', 'Software', 'Network')",
 				},
 				"query": {
 					Type:        "string",
-					Description: "Search query for incidents",
+					Description: "Search query for incidents (searches short_description and description). For advanced filtering, use ServiceNow encoded query syntax (^ for AND, | for OR, e.g., 'priority=1^state=2')",
 				},
 			},
 		},
@@ -58,13 +67,13 @@ func (r *Registry) registerIncidentTools(server *mcp.Server) int {
 	// Get Incident by Number (read-only)
 	server.RegisterTool(mcp.Tool{
 		Name:        "get_incident",
-		Description: "Get a specific incident by number or sys_id",
+		Description: "Get detailed information about a specific incident including all fields, timestamps, and related records.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
 				"incident_id": {
 					Type:        "string",
-					Description: "Incident number (e.g., INC0010001) or sys_id",
+					Description: "Incident number (e.g., 'INC0010001') or sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'). Accepts both formats.",
 				},
 			},
 			Required: []string{"incident_id"},
@@ -83,49 +92,52 @@ func (r *Registry) registerIncidentTools(server *mcp.Server) int {
 		// Create Incident
 		server.RegisterTool(mcp.Tool{
 			Name:        "create_incident",
-			Description: "Create a new incident in ServiceNow",
+			Description: "Create a new incident. Returns the new incident number and sys_id upon successful creation.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"short_description": {
 						Type:        "string",
-						Description: "Short description of the incident",
+						Description: "Brief summary of the incident (required, max 160 characters recommended)",
 					},
 					"description": {
 						Type:        "string",
-						Description: "Detailed description of the incident",
+						Description: "Detailed description of the incident including steps to reproduce, error messages, and impact",
 					},
 					"caller_id": {
 						Type:        "string",
-						Description: "User who reported the incident",
+						Description: "User who reported the incident (sys_id, username, or email)",
 					},
 					"category": {
 						Type:        "string",
-						Description: "Category of the incident",
+						Description: "Category of the incident (e.g., 'Hardware', 'Software', 'Network')",
 					},
 					"subcategory": {
 						Type:        "string",
-						Description: "Subcategory of the incident",
+						Description: "Subcategory of the incident (must be valid for the selected category)",
 					},
 					"priority": {
 						Type:        "string",
-						Description: "Priority of the incident (1-5)",
+						Description: "Priority level (1=Critical, 2=High, 3=Moderate, 4=Low, 5=Planning)",
+						Enum:        []string{"1", "2", "3", "4", "5"},
 					},
 					"impact": {
 						Type:        "string",
-						Description: "Impact of the incident (1-3)",
+						Description: "Business impact level (1=High, 2=Medium, 3=Low)",
+						Enum:        []string{"1", "2", "3"},
 					},
 					"urgency": {
 						Type:        "string",
-						Description: "Urgency of the incident (1-3)",
+						Description: "Urgency level (1=High, 2=Medium, 3=Low)",
+						Enum:        []string{"1", "2", "3"},
 					},
 					"assigned_to": {
 						Type:        "string",
-						Description: "User assigned to the incident",
+						Description: "User to assign the incident to (sys_id, username, or email)",
 					},
 					"assignment_group": {
 						Type:        "string",
-						Description: "Group assigned to the incident",
+						Description: "Group to assign the incident to (sys_id or group name)",
 					},
 				},
 				Required: []string{"short_description"},
@@ -142,17 +154,17 @@ func (r *Registry) registerIncidentTools(server *mcp.Server) int {
 		// Update Incident
 		server.RegisterTool(mcp.Tool{
 			Name:        "update_incident",
-			Description: "Update an existing incident in ServiceNow",
+			Description: "Update an existing incident. At least one field besides incident_id must be provided to make changes.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"incident_id": {
 						Type:        "string",
-						Description: "Incident ID or sys_id",
+						Description: "Incident number (e.g., 'INC0010001') or sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'). Accepts both formats.",
 					},
 					"short_description": {
 						Type:        "string",
-						Description: "Short description of the incident",
+						Description: "Brief summary of the incident",
 					},
 					"description": {
 						Type:        "string",
@@ -160,35 +172,39 @@ func (r *Registry) registerIncidentTools(server *mcp.Server) int {
 					},
 					"state": {
 						Type:        "string",
-						Description: "State of the incident",
+						Description: "Incident state (1=New, 2=In Progress, 3=On Hold, 6=Resolved, 7=Closed, 8=Canceled)",
+						Enum:        []string{"1", "2", "3", "6", "7", "8"},
 					},
 					"category": {
 						Type:        "string",
-						Description: "Category of the incident",
+						Description: "Category of the incident (e.g., 'Hardware', 'Software', 'Network')",
 					},
 					"priority": {
 						Type:        "string",
-						Description: "Priority of the incident",
+						Description: "Priority level (1=Critical, 2=High, 3=Moderate, 4=Low, 5=Planning)",
+						Enum:        []string{"1", "2", "3", "4", "5"},
 					},
 					"impact": {
 						Type:        "string",
-						Description: "Impact of the incident",
+						Description: "Business impact level (1=High, 2=Medium, 3=Low)",
+						Enum:        []string{"1", "2", "3"},
 					},
 					"urgency": {
 						Type:        "string",
-						Description: "Urgency of the incident",
+						Description: "Urgency level (1=High, 2=Medium, 3=Low)",
+						Enum:        []string{"1", "2", "3"},
 					},
 					"assigned_to": {
 						Type:        "string",
-						Description: "User assigned to the incident",
+						Description: "User to assign the incident to (sys_id, username, or email)",
 					},
 					"assignment_group": {
 						Type:        "string",
-						Description: "Group assigned to the incident",
+						Description: "Group to assign the incident to (sys_id or group name)",
 					},
 					"work_notes": {
 						Type:        "string",
-						Description: "Work notes to add to the incident",
+						Description: "Internal work notes to add (visible only to support staff)",
 					},
 				},
 				Required: []string{"incident_id"},
@@ -204,21 +220,21 @@ func (r *Registry) registerIncidentTools(server *mcp.Server) int {
 		// Add Comment
 		server.RegisterTool(mcp.Tool{
 			Name:        "add_incident_comment",
-			Description: "Add a comment to an incident in ServiceNow",
+			Description: "Add a comment or work note to an incident. Comments are visible to the caller, work notes are internal only.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"incident_id": {
 						Type:        "string",
-						Description: "Incident ID or sys_id",
+						Description: "Incident number (e.g., 'INC0010001') or sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'). Accepts both formats.",
 					},
 					"comment": {
 						Type:        "string",
-						Description: "Comment to add to the incident",
+						Description: "Comment text to add to the incident",
 					},
 					"is_work_note": {
 						Type:        "boolean",
-						Description: "Whether the comment is a work note (default: false)",
+						Description: "If true, adds as internal work note (staff only). If false, adds as customer-visible comment (default: false)",
 						Default:     false,
 					},
 				},
@@ -235,21 +251,21 @@ func (r *Registry) registerIncidentTools(server *mcp.Server) int {
 		// Resolve Incident
 		server.RegisterTool(mcp.Tool{
 			Name:        "resolve_incident",
-			Description: "Resolve an incident in ServiceNow",
+			Description: "Resolve an incident by setting state to Resolved and providing resolution details. The incident can later be closed or reopened.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"incident_id": {
 						Type:        "string",
-						Description: "Incident ID or sys_id",
+						Description: "Incident number (e.g., 'INC0010001') or sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'). Accepts both formats.",
 					},
 					"resolution_code": {
 						Type:        "string",
-						Description: "Resolution code for the incident",
+						Description: "Resolution code (e.g., 'Solved (Permanently)', 'Solved (Work Around)', 'Not Solved (Not Reproducible)')",
 					},
 					"resolution_notes": {
 						Type:        "string",
-						Description: "Resolution notes for the incident",
+						Description: "Detailed notes explaining how the incident was resolved",
 					},
 				},
 				Required: []string{"incident_id", "resolution_code", "resolution_notes"},

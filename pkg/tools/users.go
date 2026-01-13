@@ -11,10 +11,15 @@ import (
 func (r *Registry) registerUserTools(server *mcp.Server) int {
 	count := 0
 
+	// Helper for limit/offset constraints
+	limitMin := float64(1)
+	limitMax := float64(1000)
+	offsetMin := float64(0)
+
 	// List Users
 	server.RegisterTool(mcp.Tool{
 		Name:        "list_users",
-		Description: "List users from ServiceNow with filtering options",
+		Description: "List users with optional filtering by active status, department, or search query.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
@@ -22,23 +27,26 @@ func (r *Registry) registerUserTools(server *mcp.Server) int {
 					Type:        "number",
 					Description: "Maximum number of users to return (default: 50)",
 					Default:     50,
+					Minimum:     &limitMin,
+					Maximum:     &limitMax,
 				},
 				"offset": {
 					Type:        "number",
-					Description: "Offset for pagination",
+					Description: "Offset for pagination (default: 0)",
 					Default:     0,
+					Minimum:     &offsetMin,
 				},
 				"active": {
 					Type:        "boolean",
-					Description: "Filter by active status",
+					Description: "Filter by active status (true = only active users, false = only inactive)",
 				},
 				"department": {
 					Type:        "string",
-					Description: "Filter by department",
+					Description: "Filter by department name or sys_id",
 				},
 				"query": {
 					Type:        "string",
-					Description: "Search query (name, email, etc.)",
+					Description: "Search query (searches name, email, and username). For advanced filtering, use ServiceNow encoded query syntax (^ for AND, | for OR)",
 				},
 			},
 		},
@@ -54,13 +62,13 @@ func (r *Registry) registerUserTools(server *mcp.Server) int {
 	// Get User
 	server.RegisterTool(mcp.Tool{
 		Name:        "get_user",
-		Description: "Get a specific user by sys_id, username, or email",
+		Description: "Get detailed information about a specific user including profile, department, and manager.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
 				"user_id": {
 					Type:        "string",
-					Description: "User sys_id, username, or email",
+					Description: "User sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'), username, or email. Accepts all three formats.",
 				},
 			},
 			Required: []string{"user_id"},
@@ -77,7 +85,7 @@ func (r *Registry) registerUserTools(server *mcp.Server) int {
 	// List Groups
 	server.RegisterTool(mcp.Tool{
 		Name:        "list_groups",
-		Description: "List groups from ServiceNow",
+		Description: "List groups with optional filtering by active status or name search.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
@@ -85,10 +93,12 @@ func (r *Registry) registerUserTools(server *mcp.Server) int {
 					Type:        "number",
 					Description: "Maximum number of groups to return (default: 50)",
 					Default:     50,
+					Minimum:     &limitMin,
+					Maximum:     &limitMax,
 				},
 				"active": {
 					Type:        "boolean",
-					Description: "Filter by active status",
+					Description: "Filter by active status (true = only active groups, false = only inactive)",
 				},
 				"query": {
 					Type:        "string",
@@ -110,13 +120,13 @@ func (r *Registry) registerUserTools(server *mcp.Server) int {
 		// Create User
 		server.RegisterTool(mcp.Tool{
 			Name:        "create_user",
-			Description: "Create a new user in ServiceNow",
+			Description: "Create a new user account. Returns the new user sys_id upon successful creation.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"user_name": {
 						Type:        "string",
-						Description: "Username",
+						Description: "Username (must be unique)",
 					},
 					"first_name": {
 						Type:        "string",
@@ -128,7 +138,7 @@ func (r *Registry) registerUserTools(server *mcp.Server) int {
 					},
 					"email": {
 						Type:        "string",
-						Description: "Email address",
+						Description: "Email address (must be unique)",
 					},
 					"title": {
 						Type:        "string",
@@ -136,14 +146,17 @@ func (r *Registry) registerUserTools(server *mcp.Server) int {
 					},
 					"department": {
 						Type:        "string",
-						Description: "Department",
+						Description: "Department name or sys_id",
 					},
 					"manager": {
 						Type:        "string",
-						Description: "Manager user sys_id",
+						Description: "Manager user sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 				},
 				Required: []string{"user_name", "first_name", "last_name", "email"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Create User",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.createUser(args)
@@ -153,13 +166,13 @@ func (r *Registry) registerUserTools(server *mcp.Server) int {
 		// Update User
 		server.RegisterTool(mcp.Tool{
 			Name:        "update_user",
-			Description: "Update an existing user in ServiceNow",
+			Description: "Update an existing user. At least one field besides user_id must be provided to make changes.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"user_id": {
 						Type:        "string",
-						Description: "User sys_id",
+						Description: "User sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"first_name": {
 						Type:        "string",
@@ -179,18 +192,21 @@ func (r *Registry) registerUserTools(server *mcp.Server) int {
 					},
 					"department": {
 						Type:        "string",
-						Description: "Department",
+						Description: "Department name or sys_id",
 					},
 					"manager": {
 						Type:        "string",
-						Description: "Manager user sys_id",
+						Description: "Manager user sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"active": {
 						Type:        "boolean",
-						Description: "Active status",
+						Description: "Active status (false to deactivate user)",
 					},
 				},
 				Required: []string{"user_id"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Update User",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.updateUser(args)
@@ -200,13 +216,13 @@ func (r *Registry) registerUserTools(server *mcp.Server) int {
 		// Create Group
 		server.RegisterTool(mcp.Tool{
 			Name:        "create_group",
-			Description: "Create a new group in ServiceNow",
+			Description: "Create a new group. Groups are used for assignment and permissions.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"name": {
 						Type:        "string",
-						Description: "Group name",
+						Description: "Group name (must be unique)",
 					},
 					"description": {
 						Type:        "string",
@@ -214,14 +230,17 @@ func (r *Registry) registerUserTools(server *mcp.Server) int {
 					},
 					"manager": {
 						Type:        "string",
-						Description: "Manager user sys_id",
+						Description: "Manager user sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"email": {
 						Type:        "string",
-						Description: "Group email",
+						Description: "Group email address",
 					},
 				},
 				Required: []string{"name"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Create Group",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.createGroup(args)
@@ -231,13 +250,13 @@ func (r *Registry) registerUserTools(server *mcp.Server) int {
 		// Update Group
 		server.RegisterTool(mcp.Tool{
 			Name:        "update_group",
-			Description: "Update an existing group in ServiceNow",
+			Description: "Update an existing group. At least one field besides group_id must be provided to make changes.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"group_id": {
 						Type:        "string",
-						Description: "Group sys_id",
+						Description: "Group sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"name": {
 						Type:        "string",
@@ -249,14 +268,17 @@ func (r *Registry) registerUserTools(server *mcp.Server) int {
 					},
 					"manager": {
 						Type:        "string",
-						Description: "Manager user sys_id",
+						Description: "Manager user sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"active": {
 						Type:        "boolean",
-						Description: "Active status",
+						Description: "Active status (false to deactivate group)",
 					},
 				},
 				Required: []string{"group_id"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Update Group",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.updateGroup(args)
@@ -266,21 +288,24 @@ func (r *Registry) registerUserTools(server *mcp.Server) int {
 		// Add Group Members
 		server.RegisterTool(mcp.Tool{
 			Name:        "add_group_members",
-			Description: "Add members to a group in ServiceNow",
+			Description: "Add one or more users to a group.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"group_id": {
 						Type:        "string",
-						Description: "Group sys_id",
+						Description: "Group sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"user_ids": {
 						Type:        "array",
-						Description: "List of user sys_ids to add",
+						Description: "List of user sys_ids to add to the group",
 						Items:       &mcp.Property{Type: "string"},
 					},
 				},
 				Required: []string{"group_id", "user_ids"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Add Group Members",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.addGroupMembers(args)
@@ -290,21 +315,24 @@ func (r *Registry) registerUserTools(server *mcp.Server) int {
 		// Remove Group Members
 		server.RegisterTool(mcp.Tool{
 			Name:        "remove_group_members",
-			Description: "Remove members from a group in ServiceNow",
+			Description: "Remove one or more users from a group.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"group_id": {
 						Type:        "string",
-						Description: "Group sys_id",
+						Description: "Group sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"user_ids": {
 						Type:        "array",
-						Description: "List of user sys_ids to remove",
+						Description: "List of user sys_ids to remove from the group",
 						Items:       &mcp.Property{Type: "string"},
 					},
 				},
 				Required: []string{"group_id", "user_ids"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Remove Group Members",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.removeGroupMembers(args)

@@ -11,10 +11,14 @@ import (
 func (r *Registry) registerWorkflowTools(server *mcp.Server) int {
 	count := 0
 
+	// Helper for limit constraints
+	limitMin := float64(1)
+	limitMax := float64(1000)
+
 	// List Workflows
 	server.RegisterTool(mcp.Tool{
 		Name:        "list_workflows",
-		Description: "List workflows from ServiceNow",
+		Description: "List workflows with optional filtering by active status or table. Workflows automate business processes.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
@@ -22,14 +26,16 @@ func (r *Registry) registerWorkflowTools(server *mcp.Server) int {
 					Type:        "number",
 					Description: "Maximum number of workflows to return (default: 50)",
 					Default:     50,
+					Minimum:     &limitMin,
+					Maximum:     &limitMax,
 				},
 				"active": {
 					Type:        "boolean",
-					Description: "Filter by active status",
+					Description: "Filter by active status (true = only active workflows, false = only inactive)",
 				},
 				"table": {
 					Type:        "string",
-					Description: "Filter by table name",
+					Description: "Filter by table name (e.g., 'incident', 'change_request', 'sc_req_item')",
 				},
 			},
 		},
@@ -45,13 +51,13 @@ func (r *Registry) registerWorkflowTools(server *mcp.Server) int {
 	// Get Workflow
 	server.RegisterTool(mcp.Tool{
 		Name:        "get_workflow",
-		Description: "Get a specific workflow from ServiceNow",
+		Description: "Get detailed information about a specific workflow including configuration and activities.",
 		InputSchema: mcp.JSONSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
 				"workflow_id": {
 					Type:        "string",
-					Description: "Workflow sys_id or name",
+					Description: "Workflow sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6') or name. Accepts both formats.",
 				},
 			},
 			Required: []string{"workflow_id"},
@@ -70,17 +76,17 @@ func (r *Registry) registerWorkflowTools(server *mcp.Server) int {
 		// Create Workflow
 		server.RegisterTool(mcp.Tool{
 			Name:        "create_workflow",
-			Description: "Create a new workflow in ServiceNow",
+			Description: "Create a new workflow definition. The workflow is created inactive by default.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"name": {
 						Type:        "string",
-						Description: "Workflow name",
+						Description: "Workflow name (must be unique)",
 					},
 					"table": {
 						Type:        "string",
-						Description: "Table name for the workflow",
+						Description: "Table name the workflow applies to (e.g., 'incident', 'change_request', 'sc_req_item')",
 					},
 					"description": {
 						Type:        "string",
@@ -88,6 +94,9 @@ func (r *Registry) registerWorkflowTools(server *mcp.Server) int {
 					},
 				},
 				Required: []string{"name", "table"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Create Workflow",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.createWorkflow(args)
@@ -97,13 +106,13 @@ func (r *Registry) registerWorkflowTools(server *mcp.Server) int {
 		// Update Workflow
 		server.RegisterTool(mcp.Tool{
 			Name:        "update_workflow",
-			Description: "Update an existing workflow in ServiceNow",
+			Description: "Update an existing workflow. At least one field besides workflow_id must be provided.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"workflow_id": {
 						Type:        "string",
-						Description: "Workflow sys_id",
+						Description: "Workflow sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 					"name": {
 						Type:        "string",
@@ -115,10 +124,13 @@ func (r *Registry) registerWorkflowTools(server *mcp.Server) int {
 					},
 					"active": {
 						Type:        "boolean",
-						Description: "Active status",
+						Description: "Active status (true to activate, false to deactivate)",
 					},
 				},
 				Required: []string{"workflow_id"},
+			},
+			Annotations: &mcp.ToolAnnotation{
+				Title: "Update Workflow",
 			},
 		}, func(args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return r.updateWorkflow(args)
@@ -128,13 +140,13 @@ func (r *Registry) registerWorkflowTools(server *mcp.Server) int {
 		// Delete Workflow
 		server.RegisterTool(mcp.Tool{
 			Name:        "delete_workflow",
-			Description: "Delete a workflow from ServiceNow",
+			Description: "Permanently delete a workflow. This action cannot be undone.",
 			InputSchema: mcp.JSONSchema{
 				Type: "object",
 				Properties: map[string]mcp.Property{
 					"workflow_id": {
 						Type:        "string",
-						Description: "Workflow sys_id",
+						Description: "Workflow sys_id (e.g., 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')",
 					},
 				},
 				Required: []string{"workflow_id"},
