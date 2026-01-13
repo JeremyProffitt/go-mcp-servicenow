@@ -28,6 +28,118 @@ When a GitHub Actions pipeline fails:
 5. Monitor the new pipeline run
 6. Repeat until successful deployment
 
+## ServiceNow MCP Server - LLM Usage Guide
+
+This section provides guidance for LLMs using the ServiceNow MCP tools effectively.
+
+### Quick Reference: Most Common Operations
+
+**Finding records:**
+- Use `list_*` tools with `query` parameter for text search
+- Use `get_*` tools when you have a specific record number or sys_id
+- Always check `limit` parameter - default may be too small for comprehensive searches
+
+**Creating records:**
+- Check required parameters in tool descriptions
+- `short_description` is typically required for most record types
+- State/status fields are usually set automatically on creation
+
+**Updating records:**
+- Always get the record first to verify it exists and get current values
+- Provide only the fields you want to change
+- Record identifiers (incident_id, change_id, etc.) accept both numbers and sys_ids
+
+### Parameter Patterns
+
+**Identifier parameters** (incident_id, change_id, user_id, etc.):
+- Accept human-readable formats: `INC0010001`, `CHG0010001`, `admin@example.com`
+- Accept sys_id format: 32-character hex string
+- When in doubt, use the human-readable format
+
+**State parameters**:
+- Pass as strings, not integers: `"1"` not `1`
+- Values are documented in tool descriptions
+- Check current state before updating to avoid invalid transitions
+
+**Limit/offset parameters**:
+- Default limits are conservative (10-50 records)
+- Maximum is typically 1000
+- Use offset for pagination through large result sets
+
+**Query parameters**:
+- Simple text search: `query: "network issue"`
+- Encoded query syntax for complex filters: `query: "priority=1^state!=7"`
+- Combine operators: `^` (AND), `^OR` (OR)
+
+### Best Practices
+
+**When searching for records:**
+```
+1. Start with list_* tool with appropriate filters
+2. If too many results, add more specific filters
+3. If no results, broaden the search or check spelling
+4. Use get_* once you have a specific record ID
+```
+
+**When modifying records:**
+```
+1. Retrieve current record state with get_* tool
+2. Verify the record exists and is in expected state
+3. Make minimal changes - only fields that need updating
+4. Verify success from tool response
+```
+
+**When creating related records:**
+```
+1. Create parent record first (e.g., change request)
+2. Capture sys_id from response
+3. Use sys_id when creating child records (e.g., change tasks)
+```
+
+### Error Recovery
+
+**"Record not found" errors:**
+- Verify the record number/sys_id is correct
+- Check if searching the right table (incident vs change)
+- Try listing records to find similar numbers
+
+**"Write operation blocked" errors:**
+- Server is in read-only mode
+- Inform user that modification requires write access
+
+**"Rate limit exceeded" errors:**
+- Wait before making additional requests
+- Reduce frequency of calls
+- Batch operations where possible
+
+**"Access denied" errors:**
+- User may lack required ServiceNow roles
+- Check if operation requires special permissions
+
+### ServiceNow Domain Knowledge
+
+**Understanding record relationships:**
+- Incidents are standalone support tickets
+- Change requests contain change tasks (child records)
+- Knowledge articles belong to knowledge bases and categories
+- Users belong to groups via membership records
+- Stories belong to sprints and epics
+
+**Common ServiceNow tables:**
+- `incident` - Support incidents
+- `change_request` - Change management
+- `change_task` - Tasks within changes
+- `kb_knowledge` - Knowledge articles
+- `sys_user` - Users
+- `sys_user_group` - Groups
+- `sc_cat_item` - Catalog items
+- `rm_story` - Agile stories
+
+**Workflow states typically progress forward:**
+- Incidents: New -> In Progress -> Resolved -> Closed
+- Changes: New -> Assess -> Authorize -> Scheduled -> Implement -> Review -> Closed
+- Moving backwards may require special permissions
+
 ## MCP Server LLM Usability Checklist
 
 **IMPORTANT**: This checklist must be reviewed and all items verified on every update to this repository. Any issues found must be resolved before merging changes.

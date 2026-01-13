@@ -2,6 +2,17 @@
 
 This document provides detailed instructions for integrating the ServiceNow MCP server with various AI assistants and deployment environments.
 
+## Quick Start
+
+The fastest way to get started depends on your use case:
+
+| Use Case | Recommended Setup |
+|----------|-------------------|
+| Local Claude Desktop | Stdio mode with basic auth |
+| Remote/Multi-user | HTTP mode with Docker |
+| Production | HTTP mode on ECS/Kubernetes |
+| Testing | Stdio mode with read-only flag |
+
 ## Claude Desktop
 
 ### Configuration
@@ -52,6 +63,28 @@ For safer operation, enable read-only mode:
 }
 ```
 
+### Debugging Configuration
+
+Enable debug logging to troubleshoot issues:
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "/path/to/go-mcp-servicenow",
+      "args": ["--log-level", "debug"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_AUTH_TYPE": "basic",
+        "SERVICENOW_USERNAME": "your-username",
+        "SERVICENOW_PASSWORD": "your-password",
+        "MCP_LOG_DIR": "/tmp/servicenow-mcp-logs"
+      }
+    }
+  }
+}
+```
+
 ## HTTP Mode Integration
 
 ### Starting the Server
@@ -80,6 +113,45 @@ curl http://localhost:3000/health
 Response:
 ```json
 {"status":"healthy","server":"go-mcp-servicenow"}
+```
+
+### Example: List Incidents
+
+```bash
+curl -X POST http://localhost:3000/ \
+  -H "Content-Type: application/json" \
+  -H "X-MCP-Auth-Token: your-token" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "list_incidents",
+      "arguments": {
+        "limit": 5,
+        "state": "1"
+      }
+    }
+  }'
+```
+
+### Example: Get Incident Details
+
+```bash
+curl -X POST http://localhost:3000/ \
+  -H "Content-Type: application/json" \
+  -H "X-MCP-Auth-Token: your-token" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {
+      "name": "get_incident",
+      "arguments": {
+        "incident_id": "INC0010001"
+      }
+    }
+  }'
 ```
 
 ## Docker Deployment
@@ -126,6 +198,20 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+```
+
+### Docker with Read-Only Mode
+
+```bash
+docker run -d \
+  --name servicenow-mcp-readonly \
+  -p 3000:3000 \
+  -e SERVICENOW_INSTANCE_URL="https://your-instance.service-now.com" \
+  -e SERVICENOW_AUTH_TYPE="basic" \
+  -e SERVICENOW_USERNAME="admin" \
+  -e SERVICENOW_PASSWORD="password" \
+  -e READ_ONLY_MODE="true" \
+  go-mcp-servicenow
 ```
 
 ## AWS ECS Deployment
@@ -253,6 +339,13 @@ spec:
             port: 3000
           initialDelaySeconds: 5
           periodSeconds: 10
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
 ```
 
 ### Service
@@ -271,9 +364,11 @@ spec:
   type: ClusterIP
 ```
 
-## Example MCP Requests
+## MCP Protocol Reference
 
 ### Initialize
+
+Required first call to establish the session:
 
 ```json
 {
@@ -293,6 +388,8 @@ spec:
 
 ### List Tools
 
+Discover available tools:
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -303,6 +400,8 @@ spec:
 
 ### Call Tool
 
+Execute a specific tool:
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -312,8 +411,45 @@ spec:
     "name": "list_incidents",
     "arguments": {
       "limit": 10,
-      "state": "open"
+      "state": "1"
     }
+  }
+}
+```
+
+### Response Format
+
+Successful tool calls return:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"success\":true,\"message\":\"Found 5 incidents\",\"incidents\":[...]}"
+      }
+    ]
+  }
+}
+```
+
+Error responses include:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"success\":false,\"message\":\"Incident not found: INC9999999\"}"
+      }
+    ],
+    "isError": true
   }
 }
 ```
@@ -325,12 +461,14 @@ spec:
 1. Verify ServiceNow instance URL is correct and accessible
 2. Check authentication credentials
 3. Ensure network connectivity to ServiceNow
+4. Verify firewall rules allow outbound HTTPS
 
 ### Authentication Failures
 
 1. Verify `SERVICENOW_AUTH_TYPE` matches your credential type
-2. For OAuth, ensure client ID/secret are valid
+2. For OAuth, ensure client ID/secret are valid and not expired
 3. Check user has appropriate ServiceNow roles
+4. Verify the ServiceNow instance allows API access
 
 ### Rate Limiting
 
@@ -343,6 +481,24 @@ The server implements a 5 calls per 20 seconds rate limit. If exceeded, requests
 }
 ```
 
+**Solutions:**
+- Space out requests over time
+- Batch operations where possible
+- Use more specific queries to reduce total calls
+
+### Permission Errors
+
+ServiceNow operations require appropriate roles:
+
+| Operation | Minimum Role |
+|-----------|--------------|
+| Read incidents | itil |
+| Create/update incidents | itil |
+| Read change requests | itil |
+| Create/update changes | change_manager |
+| Manage users/groups | user_admin |
+| Manage knowledge | knowledge_admin |
+
 ### Logs
 
 Check logs in the configured log directory (default: OS temp directory):
@@ -353,4 +509,31 @@ ls /tmp/go-mcp-servicenow/
 
 # View latest log
 tail -f /tmp/go-mcp-servicenow/go-mcp-servicenow.log
+
+# Search for errors
+grep -i error /tmp/go-mcp-servicenow/go-mcp-servicenow.log
 ```
+
+### Common Error Messages
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| "connection refused" | Server not running or wrong port | Verify server is running and port is correct |
+| "unauthorized" | Invalid MCP auth token | Check MCP_AUTH_TOKEN value |
+| "failed to authenticate" | Invalid ServiceNow credentials | Verify username/password or OAuth tokens |
+| "record not found" | Invalid record ID | Use list tools to find valid IDs |
+| "write operation blocked" | Read-only mode enabled | Remove --read-only flag |
+
+### Debug Mode
+
+Enable debug logging for detailed troubleshooting:
+
+```bash
+./go-mcp-servicenow --http --log-level debug
+```
+
+This will log:
+- All incoming requests
+- ServiceNow API calls
+- Response details
+- Error stack traces
